@@ -74,7 +74,8 @@ def describe_demo_file(path: str | Path, max_episodes: int = 3) -> str:
 
     lines = [f"File: {demo_path}"]
     with h5py.File(demo_path, "r") as file:
-        lines.append("Root keys: " + ", ".join(file.keys()))
+        root_keys = list(file.keys())
+        lines.append("Root keys: " + _format_key_list(root_keys))
         episode_names = sorted(name for name in file.keys() if name.startswith("traj_"))
         lines.append(f"Trajectory groups: {len(episode_names)}")
 
@@ -95,6 +96,13 @@ def describe_demo_file(path: str | Path, max_episodes: int = 3) -> str:
             lines.append(f"Action dim: {dataset.action_dim}")
 
     return "\n".join(lines)
+
+
+def _format_key_list(keys: list[str], limit: int = 20) -> str:
+    if len(keys) <= limit:
+        return ", ".join(keys)
+    shown = ", ".join(keys[:limit])
+    return f"{shown}, ... ({len(keys) - limit} more)"
 
 
 def _flatten_h5_node(node: h5py.Dataset | h5py.Group) -> np.ndarray:

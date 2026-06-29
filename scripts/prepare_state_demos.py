@@ -17,11 +17,21 @@ def main() -> None:
         help="Output HDF5 filename written next to --traj-path.",
     )
     parser.add_argument("--num-envs", type=int, default=1, help="Replay environment count.")
+    parser.add_argument("--count", type=int, default=None, help="Optional number of episodes to replay.")
     args = parser.parse_args()
 
     traj_path = Path(args.traj_path).expanduser()
     if not traj_path.exists():
-        raise FileNotFoundError(f"Trajectory file not found: {traj_path}")
+        candidates = sorted(traj_path.parent.glob("**/*.h5"))
+        if not candidates and traj_path.parent.parent.exists():
+            candidates = sorted(traj_path.parent.parent.glob("**/*.h5"))
+        candidate_text = "\n".join(f"  - {path}" for path in candidates) or "  none"
+        raise FileNotFoundError(
+            f"Trajectory file not found: {traj_path}\n"
+            "Available HDF5 files near that path:\n"
+            f"{candidate_text}\n"
+            "Use one of these paths with --traj-path."
+        )
     if not traj_path.with_suffix(".json").exists():
         raise FileNotFoundError(
             f"Expected metadata file next to the trajectory: {traj_path.with_suffix('.json')}"
@@ -42,14 +52,18 @@ def main() -> None:
         "--num-envs",
         str(args.num_envs),
     ]
+    if args.count is not None:
+        command.extend(["--count", str(args.count)])
 
     print("Running:", " ".join(command))
     try:
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError as exc:
         raise SystemExit(
-            "Failed to replay the trajectory. ManiSkill's replay CLI can change between versions; "
-            "run `uv run python -m mani_skill.trajectory.replay_trajectory --help` and adjust "
+            "Failed to replay the trajectory. If the traceback mentions Vulkan, svulkan2, "
+            "or vk::createInstanceUnique, SAPIEN cannot create the ManiSkill environment on "
+            "this machine. Otherwise, ManiSkill's replay CLI may have changed; run "
+            "`uv run python -m mani_skill.trajectory.replay_trajectory --help` and adjust "
             "scripts/prepare_state_demos.py if your installed version uses different flags."
         ) from exc
 

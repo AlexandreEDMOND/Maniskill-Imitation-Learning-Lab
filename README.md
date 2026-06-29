@@ -72,14 +72,16 @@ Les fichiers sont généralement placés sous :
 
 Les démonstrations téléchargées peuvent être en `obs_mode=none`. Dans ce cas, elles contiennent les états du simulateur, mais pas directement les observations `state` nécessaires à l'entraînement. Il faut alors rejouer les trajectoires pour créer un fichier avec observations.
 
-Exemple :
+Exemple recommandé avec les démonstrations `motionplanning` :
 
 ```bash
 uv run python scripts/prepare_state_demos.py \
-  --traj-path ~/.maniskill/demos/PickCube-v1/trajectory.none.pd_joint_pos.physx_cpu.h5 \
+  --traj-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.h5 \
   --output-name trajectory.state.pd_joint_pos.physx_cpu.h5 \
   --num-envs 1
 ```
+
+Pour un test rapide, ajoutez `--count 20` afin de ne rejouer que 20 épisodes.
 
 Si le nom du fichier téléchargé est différent, inspectez le dossier :
 
@@ -93,7 +95,7 @@ Avant d'entraîner, inspectez le fichier `.h5` :
 
 ```bash
 uv run python scripts/inspect_demo.py \
-  --demo-path ~/.maniskill/demos/PickCube-v1/trajectory.state.pd_joint_pos.physx_cpu.h5
+  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.state.pd_joint_pos.physx_cpu.h5
 ```
 
 Le script affiche :
@@ -107,7 +109,7 @@ Le script affiche :
 
 ```bash
 uv run python scripts/train_bc.py \
-  --demo-path ~/.maniskill/demos/PickCube-v1/trajectory.state.pd_joint_pos.physx_cpu.h5 \
+  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.state.pd_joint_pos.physx_cpu.h5 \
   --epochs 50 \
   --batch-size 256 \
   --checkpoint-path checkpoints/pickcube_bc.pt
@@ -158,15 +160,16 @@ uv run python scripts/download_demos.py --env-id PickCube-v1
 find ~/.maniskill/demos/PickCube-v1 -name "*.h5"
 
 uv run python scripts/prepare_state_demos.py \
-  --traj-path ~/.maniskill/demos/PickCube-v1/trajectory.none.pd_joint_pos.physx_cpu.h5 \
+  --traj-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.h5 \
   --output-name trajectory.state.pd_joint_pos.physx_cpu.h5 \
-  --num-envs 1
+  --num-envs 1 \
+  --count 20
 
 uv run python scripts/inspect_demo.py \
-  --demo-path ~/.maniskill/demos/PickCube-v1/trajectory.state.pd_joint_pos.physx_cpu.h5
+  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.state.pd_joint_pos.physx_cpu.h5
 
 uv run python scripts/train_bc.py \
-  --demo-path ~/.maniskill/demos/PickCube-v1/trajectory.state.pd_joint_pos.physx_cpu.h5 \
+  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.state.pd_joint_pos.physx_cpu.h5 \
   --epochs 50 \
   --batch-size 256 \
   --checkpoint-path checkpoints/pickcube_bc.pt
