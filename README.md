@@ -9,6 +9,7 @@ Le projet commence volontairement par une tâche simple, `PickCube-v1`, avec des
 - télécharge les démonstrations ManiSkill de `PickCube-v1` ;
 - inspecte les fichiers `.h5` pour comprendre leur structure ;
 - prépare des démonstrations avec observations `state` si nécessaire ;
+- peut entraîner directement depuis les `env_states` déjà présents dans les démonstrations ;
 - charge les couples `(observation, action)` ;
 - entraîne une policy de Behavior Cloning avec une loss MSE ;
 - évalue la policy dans ManiSkill ;
@@ -70,7 +71,12 @@ Les fichiers sont généralement placés sous :
 ~/.maniskill/demos/PickCube-v1/
 ```
 
-Les démonstrations téléchargées peuvent être en `obs_mode=none`. Dans ce cas, elles contiennent les états du simulateur, mais pas directement les observations `state` nécessaires à l'entraînement. Il faut alors rejouer les trajectoires pour créer un fichier avec observations.
+Les démonstrations téléchargées peuvent être en `obs_mode=none`. Dans ce cas, elles contiennent les états du simulateur, mais pas directement les observations `state` ManiSkill. Deux options existent :
+
+- entraîner directement sur les `env_states` stockés dans le `.h5`, ce qui ne lance pas SAPIEN ;
+- rejouer les trajectoires pour créer un fichier avec observations `state`, ce qui nécessite que ManiSkill/SAPIEN puisse créer l'environnement localement.
+
+Sur macOS, si SAPIEN échoue avec une erreur Vulkan ou `vk::createInstanceUnique`, utilisez d'abord le mode `env_states`.
 
 Exemple recommandé avec les démonstrations `motionplanning` :
 
@@ -106,6 +112,19 @@ Le script affiche :
 - un diagnostic clair si le fichier n'est pas prêt pour le Behavior Cloning state-based.
 
 ## Entraîner le modèle
+
+Option robuste sans replay SAPIEN, directement depuis les démonstrations téléchargées :
+
+```bash
+uv run python scripts/train_bc.py \
+  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.h5 \
+  --observation-source env_states \
+  --epochs 50 \
+  --batch-size 256 \
+  --checkpoint-path checkpoints/pickcube_bc_env_states.pt
+```
+
+Option après conversion en `obs_mode=state` :
 
 ```bash
 uv run python scripts/train_bc.py \
@@ -169,10 +188,11 @@ uv run python scripts/inspect_demo.py \
   --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.state.pd_joint_pos.physx_cpu.h5
 
 uv run python scripts/train_bc.py \
-  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.state.pd_joint_pos.physx_cpu.h5 \
+  --demo-path ~/.maniskill/demos/PickCube-v1/motionplanning/trajectory.h5 \
+  --observation-source env_states \
   --epochs 50 \
   --batch-size 256 \
-  --checkpoint-path checkpoints/pickcube_bc.pt
+  --checkpoint-path checkpoints/pickcube_bc_env_states.pt
 
 uv run python scripts/evaluate_policy.py \
   --checkpoint-path checkpoints/pickcube_bc.pt \

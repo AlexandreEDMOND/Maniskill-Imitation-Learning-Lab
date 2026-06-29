@@ -13,6 +13,7 @@ class DemoDataset:
     observations: np.ndarray
     actions: np.ndarray
     episodes: int
+    source: str
 
     @property
     def obs_dim(self) -> int:
@@ -23,14 +24,22 @@ class DemoDataset:
         return int(self.actions.shape[1])
 
 
-def load_bc_dataset(path: str | Path, max_episodes: int | None = None) -> DemoDataset:
+def load_bc_dataset(
+    path: str | Path,
+    max_episodes: int | None = None,
+    observation_source: str = "auto",
+) -> DemoDataset:
     """Load state observations and actions from a ManiSkill trajectory HDF5 file."""
+    if observation_source not in {"auto", "obs", "env_states"}:
+        raise ValueError("observation_source must be one of: auto, obs, env_states.")
+
     demo_path = Path(path).expanduser()
     if not demo_path.exists():
         raise FileNotFoundError(f"Demo file not found: {demo_path}")
 
     observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
+    resolved_source: str | None = None
 
     with h5py.File(demo_path, "r") as file:
         episode_names = sorted(name for name in file.keys() if name.startswith("traj_"))
@@ -44,15 +53,15 @@ def load_bc_dataset(path: str | Path, max_episodes: int | None = None) -> DemoDa
             group = file[name]
             if "actions" not in group:
                 raise ValueError(f"Trajectory {name} does not contain an 'actions' dataset.")
-            if "obs" not in group:
-                raise ValueError(
-                    f"Trajectory {name} does not contain 'obs'. The file was probably saved "
-                    "with obs_mode=none. Run scripts/prepare_state_demos.py first to replay "
-                    "the trajectory with obs_mode=state."
-                )
 
             episode_actions = _as_2d(np.asarray(group["actions"], dtype=np.float32), "actions", name)
-            episode_obs = _flatten_h5_node(group["obs"]).astype(np.float32)
+            episode_obs, episode_source = _load_observation_array(group, name, observation_source)
+            if resolved_source is None:
+                resolved_source = episode_source
+            elif resolved_source != episode_source:
+                raise ValueError(
+                    f"Mixed observation sources in one dataset: {resolved_source} and {episode_source}."
+                )
             episode_obs = _align_observations(episode_obs, len(episode_actions), name)
 
             observations.append(episode_obs)
@@ -63,7 +72,7 @@ def load_bc_dataset(path: str | Path, max_episodes: int | None = None) -> DemoDa
 
     obs_array = np.concatenate(observations, axis=0)
     action_array = np.concatenate(actions, axis=0)
-    return DemoDataset(obs_array, action_array, episodes=len(observations))
+    return DemoDataset(obs_array, action_array, episodes=len(observations), source=resolved_source or "unknown")
 
 
 def describe_demo_file(path: str | Path, max_episodes: int = 3) -> str:
@@ -91,6 +100,7 @@ def describe_demo_file(path: str | Path, max_episodes: int = 3) -> str:
             lines.append(f"Reason: {exc}")
         else:
             lines.append("\nBC readiness: ready")
+            lines.append(f"Observation source: {dataset.source}")
             lines.append(f"Loaded sample count: {len(dataset.observations)}")
             lines.append(f"Observation dim: {dataset.obs_dim}")
             lines.append(f"Action dim: {dataset.action_dim}")
@@ -127,6 +137,35 @@ def _flatten_h5_node(node: h5py.Dataset | h5py.Group) -> np.ndarray:
         )
 
     return np.concatenate(arrays, axis=1)
+
+
+def _load_observation_array(
+    group: h5py.Group,
+    trajectory_name: str,
+    observation_source: str,
+) -> tuple[np.ndarray, str]:
+    errors: list[str] = []
+
+    if observation_source in {"auto", "obs"}:
+        if "obs" in group:
+            try:
+                return _flatten_h5_node(group["obs"]).astype(np.float32), "obs"
+            except ValueError as exc:
+                errors.append(str(exc))
+        elif observation_source == "obs":
+            errors.append(f"Trajectory {trajectory_name} does not contain 'obs'.")
+
+    if observation_source in {"auto", "env_states"}:
+        if "env_states" in group:
+            return _flatten_h5_node(group["env_states"]).astype(np.float32), "env_states"
+        errors.append(f"Trajectory {trajectory_name} does not contain 'env_states'.")
+
+    detail = " ".join(errors)
+    raise ValueError(
+        f"Could not load observations for {trajectory_name}. {detail} "
+        "Use --observation-source env_states to train directly from downloaded demos, "
+        "or replay trajectories with scripts/prepare_state_demos.py to create obs_mode=state data."
+    )
 
 
 def _align_observations(observations: np.ndarray, action_count: int, trajectory_name: str) -> np.ndarray:

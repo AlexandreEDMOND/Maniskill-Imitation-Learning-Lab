@@ -15,7 +15,13 @@ from il_lab.model import MLPPolicy
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a simple Behavior Cloning policy.")
-    parser.add_argument("--demo-path", required=True, help="Path to a state-observation ManiSkill .h5 file.")
+    parser.add_argument("--demo-path", required=True, help="Path to a ManiSkill .h5 trajectory file.")
+    parser.add_argument(
+        "--observation-source",
+        choices=["auto", "obs", "env_states"],
+        default="auto",
+        help="Use recorded obs, simulator env_states, or auto fallback.",
+    )
     parser.add_argument("--checkpoint-path", default="checkpoints/pickcube_bc.pt")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -30,7 +36,7 @@ def main() -> None:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    dataset = load_bc_dataset(args.demo_path)
+    dataset = load_bc_dataset(args.demo_path, observation_source=args.observation_source)
     observations = torch.from_numpy(dataset.observations)
     actions = torch.from_numpy(dataset.actions)
     tensor_dataset = TensorDataset(observations, actions)
@@ -56,7 +62,7 @@ def main() -> None:
 
     print(
         f"Loaded {len(tensor_dataset)} samples from {dataset.episodes} episodes "
-        f"(obs_dim={dataset.obs_dim}, action_dim={dataset.action_dim})."
+        f"(source={dataset.source}, obs_dim={dataset.obs_dim}, action_dim={dataset.action_dim})."
     )
 
     for epoch in trange(1, args.epochs + 1, desc="training"):
@@ -90,6 +96,7 @@ def main() -> None:
             "action_dim": dataset.action_dim,
             "hidden_dim": args.hidden_dim,
             "hidden_layers": args.hidden_layers,
+            "observation_source": dataset.source,
             "demo_path": str(Path(args.demo_path).expanduser()),
         },
         checkpoint_path,
