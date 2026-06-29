@@ -13,6 +13,18 @@ from il_lab.env_utils import flatten_observation, scalar_from_info
 from il_lab.model import MLPPolicy
 
 
+def flatten_state_dict_sorted(state_dict: dict) -> np.ndarray:
+    """Flatten a nested state dict with sorted keys, matching il_lab.data._flatten_h5_node."""
+    arrays: list[np.ndarray] = []
+    for key in sorted(state_dict.keys()):
+        value = state_dict[key]
+        if isinstance(value, dict):
+            arrays.append(flatten_state_dict_sorted(value))
+        else:
+            arrays.append(np.asarray(value, dtype=np.float32).reshape(-1))
+    return np.concatenate(arrays).astype(np.float32)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a trained BC policy in ManiSkill.")
     parser.add_argument("--checkpoint-path", required=True)
@@ -25,6 +37,7 @@ def main() -> None:
     args = parser.parse_args()
 
     checkpoint = torch.load(Path(args.checkpoint_path), map_location=args.device)
+    observation_source = checkpoint.get("observation_source", "obs")
     policy = MLPPolicy(
         obs_dim=int(checkpoint["obs_dim"]),
         action_dim=int(checkpoint["action_dim"]),
@@ -39,7 +52,10 @@ def main() -> None:
         obs_mode="state",
         control_mode=args.control_mode,
         max_episode_steps=args.max_episode_steps,
+        render_mode="human",
     )
+
+    print(f"Observation source from checkpoint: {observation_source}")
 
     episode_results = []
     try:
@@ -49,7 +65,12 @@ def main() -> None:
             success = None
 
             for step in range(args.max_episode_steps):
-                obs_vector = flatten_observation(observation)
+                if observation_source == "env_states":
+                    obs_vector = flatten_state_dict_sorted(
+                        env.unwrapped.get_state_dict()
+                    )
+                else:
+                    obs_vector = flatten_observation(observation)
                 if obs_vector.shape[0] != checkpoint["obs_dim"]:
                     raise ValueError(
                         f"Environment observation dim is {obs_vector.shape[0]}, but checkpoint "
@@ -62,6 +83,7 @@ def main() -> None:
 
                 action = clip_action(env.action_space, action)
                 observation, reward, terminated, truncated, info = env.step(action)
+                env.render()
                 total_reward += float(np.asarray(reward).reshape(-1)[0])
 
                 success_value = scalar_from_info(info, "success")
