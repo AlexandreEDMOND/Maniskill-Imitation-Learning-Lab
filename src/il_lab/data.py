@@ -14,6 +14,7 @@ class DemoDataset:
     actions: np.ndarray
     episodes: int
     source: str
+    episode_lengths: tuple[int, ...]
 
     @property
     def obs_dim(self) -> int:
@@ -39,10 +40,14 @@ def load_bc_dataset(
 
     observations: list[np.ndarray] = []
     actions: list[np.ndarray] = []
+    episode_lengths: list[int] = []
     resolved_source: str | None = None
 
     with h5py.File(demo_path, "r") as file:
-        episode_names = sorted(name for name in file.keys() if name.startswith("traj_"))
+        episode_names = sorted(
+            (name for name in file.keys() if name.startswith("traj_")),
+            key=_trajectory_index,
+        )
         if not episode_names:
             raise ValueError(
                 f"No trajectory groups named 'traj_*' were found in {demo_path}. "
@@ -66,13 +71,20 @@ def load_bc_dataset(
 
             observations.append(episode_obs)
             actions.append(episode_actions)
+            episode_lengths.append(len(episode_actions))
 
     if not observations:
         raise ValueError(f"No usable episodes were loaded from {demo_path}.")
 
     obs_array = np.concatenate(observations, axis=0)
     action_array = np.concatenate(actions, axis=0)
-    return DemoDataset(obs_array, action_array, episodes=len(observations), source=resolved_source or "unknown")
+    return DemoDataset(
+        obs_array,
+        action_array,
+        episodes=len(observations),
+        source=resolved_source or "unknown",
+        episode_lengths=tuple(episode_lengths),
+    )
 
 
 def describe_demo_file(path: str | Path, max_episodes: int = 3) -> str:
@@ -85,7 +97,10 @@ def describe_demo_file(path: str | Path, max_episodes: int = 3) -> str:
     with h5py.File(demo_path, "r") as file:
         root_keys = list(file.keys())
         lines.append("Root keys: " + _format_key_list(root_keys))
-        episode_names = sorted(name for name in file.keys() if name.startswith("traj_"))
+        episode_names = sorted(
+            (name for name in file.keys() if name.startswith("traj_")),
+            key=_trajectory_index,
+        )
         lines.append(f"Trajectory groups: {len(episode_names)}")
 
         for name in episode_names[:max_episodes]:
@@ -113,6 +128,10 @@ def _format_key_list(keys: list[str], limit: int = 20) -> str:
         return ", ".join(keys)
     shown = ", ".join(keys[:limit])
     return f"{shown}, ... ({len(keys) - limit} more)"
+
+
+def _trajectory_index(name: str) -> int:
+    return int(name.removeprefix("traj_"))
 
 
 def _flatten_h5_node(node: h5py.Dataset | h5py.Group) -> np.ndarray:
