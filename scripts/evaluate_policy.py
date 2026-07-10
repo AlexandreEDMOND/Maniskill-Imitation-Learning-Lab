@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("--demo-path", help="Path to a ManiSkill trajectory HDF5 file for expert replay.")
     parser.add_argument("--env-id", default="PickCube-v1")
     parser.add_argument("--episodes", type=int, default=20)
+    parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--max-episode-steps", type=int, default=200)
     parser.add_argument("--control-mode", default="pd_joint_pos")
     parser.add_argument("--render-mode", choices=["human", "none"], default="human")
@@ -111,7 +112,8 @@ def main() -> None:
     episode_results = []
     try:
         demo_file = h5py.File(Path(args.demo_path).expanduser(), "r") if args.replay_expert else None
-        for episode in range(args.episodes):
+        for episode_offset in range(args.episodes):
+            episode = args.start_seed + episode_offset
             trajectory_name = f"traj_{episode}"
             expert_actions = None
             if demo_file is not None:
@@ -225,6 +227,7 @@ def main() -> None:
         "env_id": args.env_id,
         "control_mode": args.control_mode,
         "episodes": args.episodes,
+        "start_seed": args.start_seed,
         "mean_return": float(np.mean([result["return"] for result in episode_results])),
         "mean_length": float(np.mean([result["length"] for result in episode_results])),
         "success_rate": float(np.mean(successes)) if successes else None,

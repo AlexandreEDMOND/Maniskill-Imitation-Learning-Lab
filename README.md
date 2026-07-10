@@ -164,8 +164,12 @@ Validé :
 - expert replay : `success_rate = 1.0` ;
 - nearest-neighbor sur une démonstration : succès online ;
 - BC vanilla : erreur offline quasi nulle, mais échec online ;
-- BC-v2-b (`state + timestep + previous_action`) : succès closed-loop sur `traj_0` ;
-- BC sur 10 démonstrations : imitation offline excellente.
+- BC-v2-b (`state + timestep + previous_action`) : un checkpoint réussit closed-loop sur `traj_0`, mais ce résultat n'est pas stable entre entraînements ;
+- 10 modèles BC-v2-b one-demo : `2/10` succès, dont un épisode trivial en 1 step ;
+- nearest-neighbor sur 10 démos : `0.90` sur les seeds train et `0.00` sur les seeds held-out ;
+- BC stack3 avec ou sans timestep : `0.10` sur les seeds train, uniquement grâce à l'épisode trivial, et `0.00` held-out.
+
+Conclusion actuelle : le nearest-neighbor peut rejouer presque toutes les trajectoires connues, mais ni le MLP ni dix démonstrations ne donnent encore une policy closed-loop robuste ou généralisable.
 
 L'évaluation online des diagnostics 10-démo doit être lancée avec MoltenVK explicite sur macOS :
 
