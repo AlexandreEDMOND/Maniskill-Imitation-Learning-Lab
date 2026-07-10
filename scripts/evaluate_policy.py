@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 import mani_skill.envs  # noqa: F401 - registers ManiSkill environments
-from il_lab.env_utils import flatten_observation, scalar_from_info
+from il_lab.env_utils import extract_pick_cube_state, flatten_observation, scalar_from_info
 from il_lab.model import MLPPolicy
 
 
@@ -38,6 +38,8 @@ def main() -> None:
     parser.add_argument("--control-mode", default="pd_joint_pos")
     parser.add_argument("--render-mode", choices=["human", "none"], default="human")
     parser.add_argument("--arm-action-smoothing", type=float, default=0.0)
+    parser.add_argument("--reach-threshold", type=float, default=0.04)
+    parser.add_argument("--lift-threshold", type=float, default=0.03)
     parser.add_argument("--results-path", default="results/pickcube_eval.json")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
@@ -121,9 +123,14 @@ def main() -> None:
                     print(f"episode={episode:03d} skipped: {trajectory_name} not found")
                     continue
                 expert_actions = np.asarray(demo_file[trajectory_name]["actions"], dtype=np.float32)
-            observation, _ = env.reset(seed=episode)
+            observation, reset_info = env.reset(seed=episode)
+            initial_task_state = extract_pick_cube_state(env, reset_info)
             total_reward = 0.0
             success = None
+            reached = False
+            grasped = False
+            lifted = False
+            min_tcp_obj_distance = initial_task_state["tcp_obj_distance"]
             previous_arm_action = None
             previous_action = None
             observation_history = []
@@ -190,6 +197,17 @@ def main() -> None:
                 if previous_action is not None:
                     previous_action = action.copy()
                 observation, reward, terminated, truncated, info = env.step(action)
+                task_state = extract_pick_cube_state(env, info)
+                min_tcp_obj_distance = min(
+                    min_tcp_obj_distance,
+                    task_state["tcp_obj_distance"],
+                )
+                reached = reached or task_state["tcp_obj_distance"] <= args.reach_threshold
+                grasped = grasped or task_state["is_grasped"]
+                lifted = lifted or (
+                    task_state["cube_z"]
+                    >= initial_task_state["cube_z"] + args.lift_threshold
+                )
                 if args.render_mode != "none":
                     env.render()
                 total_reward += float(np.asarray(reward).reshape(-1)[0])
@@ -208,6 +226,10 @@ def main() -> None:
                     "return": total_reward,
                     "length": step + 1,
                     "success": success,
+                    "reached": reached,
+                    "grasped": grasped,
+                    "lifted": lifted,
+                    "min_tcp_obj_distance": min_tcp_obj_distance,
                 }
             )
             print(
@@ -220,6 +242,11 @@ def main() -> None:
         env.close()
 
     successes = [result["success"] for result in episode_results if result["success"] is not None]
+    nontrivial_successes = [
+        bool(result["success"]) and result["grasped"]
+        for result in episode_results
+        if result["success"] is not None
+    ]
     summary = {
         "mode": "expert_replay" if args.replay_expert else "policy",
         "demo_path": str(Path(args.demo_path).expanduser()) if args.demo_path else None,
@@ -228,9 +255,17 @@ def main() -> None:
         "control_mode": args.control_mode,
         "episodes": args.episodes,
         "start_seed": args.start_seed,
+        "reach_threshold": args.reach_threshold,
+        "lift_threshold": args.lift_threshold,
         "mean_return": float(np.mean([result["return"] for result in episode_results])),
         "mean_length": float(np.mean([result["length"] for result in episode_results])),
         "success_rate": float(np.mean(successes)) if successes else None,
+        "nontrivial_success_rate": (
+            float(np.mean(nontrivial_successes)) if nontrivial_successes else None
+        ),
+        "reach_rate": float(np.mean([result["reached"] for result in episode_results])),
+        "grasp_rate": float(np.mean([result["grasped"] for result in episode_results])),
+        "lift_rate": float(np.mean([result["lifted"] for result in episode_results])),
         "episodes_detail": episode_results,
     }
 

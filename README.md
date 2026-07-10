@@ -171,6 +171,21 @@ Validé :
 
 Conclusion actuelle : le nearest-neighbor peut rejouer presque toutes les trajectoires connues, mais ni le MLP ni dix démonstrations ne donnent encore une policy closed-loop robuste ou généralisable.
 
+### Stabilité et couverture
+
+Avec une configuration BC-v2-b fixe entraînée dix fois sur `traj_0`, les dix checkpoints atteignent et saisissent le cube, huit le lèvent, mais aucun ne termine la tâche. Leur erreur offline reste pourtant quasi nulle. Le succès one-demo observé précédemment n'est donc pas stable entre seeds d'entraînement.
+
+La montée en données utilise environ 6 000 updates d'optimiseur par checkpoint. Chaque méthode est évaluée sur 20 seeds vues (`0–19`) et 20 seeds held-out (`N–N+19`). Un succès n'est compté comme manipulation réelle que si la policy a saisi le cube, ce qui exclut les états initiaux déjà résolus :
+
+| Démos | BC-v2-b train | BC-v2-b held-out | NN train | NN held-out |
+| ---: | ---: | ---: | ---: | ---: |
+| 50 | 0.00 | 0.00 | 0.50 | 0.05 |
+| 100 | 0.00 | 0.00 | 0.50 | 0.05 |
+| 200 | 0.00 | 0.00 | 0.45 | 0.05 |
+| 1000 | 0.00 | 0.00 | 0.10 | 0.10 |
+
+À 1000 démos, NN atteint aussi `reach=0.85`, `grasp=0.50` et `lift=0.20` sur les seeds held-out. Plus de données améliore donc modestement la couverture, mais pas le BC MLP : le prochain axe justifié est la collecte de recovery data/DAgger ou une représentation d'action plus adaptée, pas un nouveau petit réglage du MLP.
+
 L'évaluation online des diagnostics 10-démo doit être lancée avec MoltenVK explicite sur macOS :
 
 ```bash
