@@ -29,6 +29,7 @@ def load_bc_dataset(
     path: str | Path,
     max_episodes: int | None = None,
     observation_source: str = "auto",
+    episode_indices: tuple[int, ...] | None = None,
 ) -> DemoDataset:
     """Load state observations and actions from a ManiSkill trajectory HDF5 file."""
     if observation_source not in {"auto", "obs", "env_states"}:
@@ -54,7 +55,16 @@ def load_bc_dataset(
                 "This does not look like a ManiSkill trajectory HDF5 file."
             )
 
-        for name in episode_names[:max_episodes]:
+        if episode_indices is not None:
+            requested = set(episode_indices)
+            episode_names = [name for name in episode_names if _trajectory_index(name) in requested]
+            missing = requested - {_trajectory_index(name) for name in episode_names}
+            if missing:
+                raise ValueError(f"Requested trajectories not found: {sorted(missing)}")
+        elif max_episodes is not None:
+            episode_names = episode_names[:max_episodes]
+
+        for name in episode_names:
             group = file[name]
             if "actions" not in group:
                 raise ValueError(f"Trajectory {name} does not contain an 'actions' dataset.")

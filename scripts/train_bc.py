@@ -18,6 +18,11 @@ def main() -> None:
     parser.add_argument("--demo-path", required=True, help="Path to a ManiSkill .h5 trajectory file.")
     parser.add_argument("--max-episodes", type=int, default=None)
     parser.add_argument(
+        "--episode-indices",
+        default=None,
+        help="Comma-separated trajectory indices to load, for example '0' or '0,3,7'.",
+    )
+    parser.add_argument(
         "--observation-source",
         choices=["auto", "obs", "env_states"],
         default="auto",
@@ -52,6 +57,7 @@ def main() -> None:
         args.demo_path,
         max_episodes=args.max_episodes,
         observation_source=args.observation_source,
+        episode_indices=parse_episode_indices(args.episode_indices),
     )
     feature_array, target_array, timestep_horizon = build_training_arrays(
         dataset.observations,
@@ -230,6 +236,15 @@ def compute_loss(
     arm_loss = loss_fn(predicted_actions[:, :-1], actions[:, :-1])
     gripper_loss = gripper_loss_fn(predicted_actions[:, -1], actions[:, -1])
     return arm_loss + gripper_loss_weight * gripper_loss
+
+
+def parse_episode_indices(value: str | None) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    indices = tuple(int(part.strip()) for part in value.split(",") if part.strip())
+    if not indices:
+        raise ValueError("--episode-indices must contain at least one integer.")
+    return indices
 
 
 def build_training_arrays(

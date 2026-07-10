@@ -157,6 +157,25 @@ Le script sauvegarde un fichier JSON avec les retours, longueurs d'épisode et t
 - pas de rendu RGB pendant l'entraînement ;
 - performance attendue limitée par la simplicité du Behavior Cloning.
 
+## État expérimental
+
+Validé :
+
+- expert replay : `success_rate = 1.0` ;
+- nearest-neighbor sur une démonstration : succès online ;
+- BC vanilla : erreur offline quasi nulle, mais échec online ;
+- BC-v2-b (`state + timestep + previous_action`) : succès closed-loop sur `traj_0` ;
+- BC sur 10 démonstrations : imitation offline excellente.
+
+L'évaluation online des diagnostics 10-démo doit être lancée avec MoltenVK explicite sur macOS :
+
+```bash
+VK_ICD_FILENAMES=/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json uv run python -c \
+  "import gymnasium as gym; import mani_skill.envs; env = gym.make('PickCube-v1', obs_mode='state', control_mode='pd_joint_pos'); print('env ok'); env.close()"
+```
+
+Avec SAPIEN 3.0.3, `vulkaninfo` peut détecter MoltenVK alors que SAPIEN échoue encore sans cette variable.
+
 ## Roadmap
 
 - Behavior Cloning avec observations RGB ;

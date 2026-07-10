@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from il_lab.data import _align_observations, _load_observation_array
 from il_lab.model import MLPPolicy
-from train_bc import build_training_arrays
+from train_bc import build_training_arrays, parse_episode_indices
 
 
 def main() -> None:
@@ -25,6 +25,11 @@ def main() -> None:
         help="Defaults to the observation source stored in the checkpoint.",
     )
     parser.add_argument("--max-episodes", type=int, default=None)
+    parser.add_argument(
+        "--episode-indices",
+        default=None,
+        help="Comma-separated trajectory indices to load, for example '0' or '0,3,7'.",
+    )
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--gripper-window", type=int, default=2)
     parser.add_argument("--results-path", default="results/checkpoint_offline_eval.json")
@@ -37,7 +42,12 @@ def main() -> None:
     demo_path = Path(args.demo_path or checkpoint["demo_path"]).expanduser()
     observation_source = args.observation_source or checkpoint.get("observation_source", "auto")
 
-    episodes = load_episodes(demo_path, observation_source, args.max_episodes)
+    episodes = load_episodes(
+        demo_path,
+        observation_source,
+        args.max_episodes,
+        parse_episode_indices(args.episode_indices),
+    )
     observations = np.concatenate([episode["observations"] for episode in episodes], axis=0)
     actions = np.concatenate([episode["actions"] for episode in episodes], axis=0)
     episode_lengths = tuple(len(episode["actions"]) for episode in episodes)
@@ -94,6 +104,7 @@ def load_episodes(
     demo_path: Path,
     observation_source: str,
     max_episodes: int | None,
+    episode_indices: tuple[int, ...] | None,
 ) -> list[dict[str, np.ndarray]]:
     episodes: list[dict[str, np.ndarray]] = []
     with h5py.File(demo_path, "r") as file:
@@ -101,7 +112,13 @@ def load_episodes(
             (name for name in file.keys() if name.startswith("traj_")),
             key=trajectory_index,
         )
-        if max_episodes is not None:
+        if episode_indices is not None:
+            requested = set(episode_indices)
+            episode_names = [name for name in episode_names if trajectory_index(name) in requested]
+            missing = requested - {trajectory_index(name) for name in episode_names}
+            if missing:
+                raise ValueError(f"Requested trajectories not found: {sorted(missing)}")
+        elif max_episodes is not None:
             episode_names = episode_names[:max_episodes]
         for name in episode_names:
             group = file[name]
