@@ -34,14 +34,3 @@ def scalar_from_info(info: dict[str, Any], key: str) -> float | None:
     if array.size == 0:
         return None
     return float(array.reshape(-1)[0])
-
-
-def extract_pick_cube_state(env: Any, info: dict[str, Any]) -> dict[str, float | bool]:
-    extra = env.unwrapped._get_obs_extra(info)
-    tcp_to_obj = np.asarray(extra["tcp_to_obj_pos"], dtype=np.float32).reshape(-1, 3)[0]
-    obj_pose = np.asarray(extra["obj_pose"], dtype=np.float32).reshape(-1, 7)[0]
-    return {
-        "tcp_obj_distance": float(np.linalg.norm(tcp_to_obj)),
-        "is_grasped": bool(np.asarray(extra["is_grasped"]).reshape(-1)[0]),
-        "cube_z": float(obj_pose[2]),
-    }

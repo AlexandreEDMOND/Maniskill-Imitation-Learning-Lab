@@ -7,7 +7,7 @@ import sys
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download ManiSkill demonstration trajectories.")
-    parser.add_argument("--env-id", default="PickCube-v1", help="ManiSkill environment id.")
+    parser.add_argument("--env-id", default="PushCube-v1", help="ManiSkill environment id.")
     args = parser.parse_args()
 
     command = [sys.executable, "-m", "mani_skill.utils.download_demo", args.env_id]

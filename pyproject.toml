@@ -1,7 +1,7 @@
 [project]
 name = "maniskill-imitation-learning-lab"
 version = "0.1.0"
-description = "Simple Behavior Cloning lab for ManiSkill PickCube-v1."
+description = "Simple Behavior Cloning lab for ManiSkill PushCube-v1."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

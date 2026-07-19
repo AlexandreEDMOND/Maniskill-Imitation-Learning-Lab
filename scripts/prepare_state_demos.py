@@ -18,6 +18,7 @@ def main() -> None:
     )
     parser.add_argument("--num-envs", type=int, default=1, help="Replay environment count.")
     parser.add_argument("--count", type=int, default=None, help="Optional number of episodes to replay.")
+    parser.add_argument("--overwrite", action="store_true", help="Replace an existing output HDF5/JSON pair.")
     args = parser.parse_args()
 
     traj_path = Path(args.traj_path).expanduser()
@@ -38,6 +39,16 @@ def main() -> None:
         )
 
     output_path = traj_path.with_name(args.output_name)
+    output_json_path = output_path.with_suffix(".json")
+    if args.overwrite:
+        for path in (output_path, output_json_path):
+            if path.exists():
+                path.unlink()
+    elif output_path.exists() or output_json_path.exists():
+        raise FileExistsError(
+            f"Output already exists: {output_path}. Use --overwrite to replace it."
+        )
+
     before = {path.resolve(): path.stat().st_mtime_ns for path in traj_path.parent.glob("*.h5")}
     command = [
         sys.executable,
