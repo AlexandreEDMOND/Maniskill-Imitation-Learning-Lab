@@ -34,10 +34,34 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--hidden-layers", type=int, default=2)
+    parser.add_argument(
+        "--action-horizon",
+        type=int,
+        default=1,
+        help="Number of future actions predicted from each observation.",
+    )
+    parser.add_argument(
+        "--observation-history",
+        type=int,
+        default=1,
+        help="Number of consecutive observations used to predict an action.",
+    )
+    parser.add_argument(
+        "--obs-noise-std",
+        type=float,
+        default=0.0,
+        help="Gaussian noise standard deviation applied to normalized training observations.",
+    )
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
+    if args.action_horizon < 1:
+        raise ValueError("--action-horizon must be at least 1.")
+    if args.observation_history < 1:
+        raise ValueError("--observation-history must be at least 1.")
+    if args.obs_noise_std < 0.0:
+        raise ValueError("--obs-noise-std must be non-negative.")
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -48,12 +72,21 @@ def main() -> None:
         observation_source=args.observation_source,
         episode_indices=parse_episode_indices(args.episode_indices),
     )
-    raw_observations = torch.from_numpy(dataset.observations)
-    raw_actions = torch.from_numpy(dataset.actions)
+    observation_array, action_array = build_training_examples(
+        dataset.observations,
+        dataset.actions,
+        dataset.episode_lengths,
+        args.action_horizon,
+        args.observation_history,
+    )
+    raw_observations = torch.from_numpy(observation_array)
+    raw_actions = torch.from_numpy(action_array)
     obs_mean = raw_observations.mean(dim=0)
     obs_std = raw_observations.std(dim=0).clamp_min(1e-6)
-    action_mean = raw_actions.mean(dim=0)
-    action_std = raw_actions.std(dim=0).clamp_min(1e-6)
+    base_action_mean = torch.from_numpy(dataset.actions).mean(dim=0)
+    base_action_std = torch.from_numpy(dataset.actions).std(dim=0).clamp_min(1e-6)
+    action_mean = base_action_mean.repeat(args.action_horizon)
+    action_std = base_action_std.repeat(args.action_horizon)
     observations = (raw_observations - obs_mean) / obs_std
     actions = (raw_actions - action_mean) / action_std
     tensor_dataset = TensorDataset(observations, actions)
@@ -70,7 +103,7 @@ def main() -> None:
 
     policy = MLPPolicy(
         obs_dim=raw_observations.shape[1],
-        action_dim=dataset.action_dim,
+        action_dim=dataset.action_dim * args.action_horizon,
         hidden_dim=args.hidden_dim,
         hidden_layers=args.hidden_layers,
     ).to(args.device)
@@ -80,9 +113,12 @@ def main() -> None:
     print(
         f"Loaded {len(tensor_dataset)} samples from {dataset.episodes} episodes "
         f"(source={dataset.source}, input_dim={raw_observations.shape[1]}, "
-        f"base_obs_dim={dataset.obs_dim}, action_dim={dataset.action_dim})."
+        f"base_obs_dim={dataset.obs_dim}, action_dim={dataset.action_dim}, "
+        f"observation_history={args.observation_history}, action_horizon={args.action_horizon})."
     )
     print("Training with observation and action normalization.")
+    if args.obs_noise_std > 0.0:
+        print(f"Adding Gaussian observation noise (std={args.obs_noise_std}).")
 
     last_val_loss = None
     progress = trange(1, args.epochs + 1, desc="training", unit="epoch")
@@ -92,6 +128,8 @@ def main() -> None:
         for batch_obs, batch_actions in train_loader:
             batch_obs = batch_obs.to(args.device)
             batch_actions = batch_actions.to(args.device)
+            if args.obs_noise_std > 0.0:
+                batch_obs = batch_obs + torch.randn_like(batch_obs) * args.obs_noise_std
             predicted_actions = policy(batch_obs)
             loss = loss_fn(predicted_actions, batch_actions)
 
@@ -125,6 +163,9 @@ def main() -> None:
             "obs_dim": int(raw_observations.shape[1]),
             "base_obs_dim": dataset.obs_dim,
             "action_dim": dataset.action_dim,
+            "action_horizon": args.action_horizon,
+            "observation_history": args.observation_history,
+            "obs_noise_std": args.obs_noise_std,
             "hidden_dim": args.hidden_dim,
             "hidden_layers": args.hidden_layers,
             "observation_source": dataset.source,
@@ -164,5 +205,38 @@ def parse_episode_indices(value: str | None) -> tuple[int, ...] | None:
     if not indices:
         raise ValueError("--episode-indices must contain at least one integer.")
     return indices
+
+
+def build_training_examples(
+    observations: np.ndarray,
+    actions: np.ndarray,
+    episode_lengths: tuple[int, ...],
+    action_horizon: int,
+    observation_history: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    feature_observations: list[np.ndarray] = []
+    chunk_actions: list[np.ndarray] = []
+    start = 0
+
+    for length in episode_lengths:
+        if length < action_horizon:
+            start += length
+            continue
+        episode_observations = observations[start : start + length]
+        episode_actions = actions[start : start + length]
+        for step in range(length - action_horizon + 1):
+            frames = [
+                episode_observations[max(0, step - offset)]
+                for offset in range(observation_history - 1, -1, -1)
+            ]
+            feature_observations.append(np.concatenate(frames))
+            chunk_actions.append(episode_actions[step : step + action_horizon].reshape(-1))
+        start += length
+
+    if not feature_observations:
+        raise ValueError("No episode is long enough for --action-horizon.")
+    return np.stack(feature_observations), np.stack(chunk_actions)
+
+
 if __name__ == "__main__":
     main()

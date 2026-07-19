@@ -38,9 +38,12 @@ def main() -> None:
     args = parser.parse_args()
 
     checkpoint = torch.load(Path(args.checkpoint_path), map_location=args.device)
+    action_dim = int(checkpoint["action_dim"])
+    action_horizon = int(checkpoint.get("action_horizon", 1))
+    observation_history_size = int(checkpoint.get("observation_history", 1))
     policy = MLPPolicy(
         obs_dim=int(checkpoint["obs_dim"]),
-        action_dim=int(checkpoint["action_dim"]),
+        action_dim=action_dim * action_horizon,
         hidden_dim=int(checkpoint["hidden_dim"]),
         hidden_layers=int(checkpoint["hidden_layers"]),
     ).to(args.device)
@@ -52,7 +55,10 @@ def main() -> None:
     obs_std = checkpoint["obs_std"].to(args.device).float()
     action_mean = checkpoint["action_mean"].to(args.device).float()
     action_std = checkpoint["action_std"].to(args.device).float()
-    base_obs_dim = int(checkpoint["obs_dim"])
+    if action_mean.numel() == action_dim:
+        action_mean = action_mean.repeat(action_horizon)
+        action_std = action_std.repeat(action_horizon)
+    base_obs_dim = int(checkpoint.get("base_obs_dim", checkpoint["obs_dim"]))
 
     env = gym.make(
         args.env_id,
@@ -68,6 +74,8 @@ def main() -> None:
             observation, _ = env.reset(seed=episode)
             total_reward = 0.0
             success = False
+            predicted_chunks: list[np.ndarray] = []
+            observation_history: list[np.ndarray] = []
 
             for step in range(args.max_episode_steps):
                 observation_vector = (
@@ -80,12 +88,26 @@ def main() -> None:
                         f"Environment observation dim is {observation_vector.shape[0]}, but "
                         f"the checkpoint expects {base_obs_dim}."
                     )
+                observation_history.append(observation_vector)
+                observation_history = observation_history[-observation_history_size:]
+                feature_vector = build_observation_history(
+                    observation_history,
+                    observation_history_size,
+                )
 
                 with torch.no_grad():
-                    observation_tensor = torch.from_numpy(observation_vector).unsqueeze(0).to(args.device)
+                    observation_tensor = torch.from_numpy(feature_vector).unsqueeze(0).to(args.device)
                     normalized_observation = (observation_tensor - obs_mean) / obs_std
                     normalized_action = policy(normalized_observation)
-                    action = (normalized_action * action_std + action_mean).cpu().numpy()[0]
+                    action_chunk = (
+                        (normalized_action * action_std + action_mean)
+                        .cpu()
+                        .numpy()[0]
+                        .reshape(action_horizon, action_dim)
+                    )
+                predicted_chunks.append(action_chunk)
+                predicted_chunks = predicted_chunks[-action_horizon:]
+                action = temporal_ensemble(predicted_chunks)
                 action = clip_action(env.action_space, action)
 
                 observation, reward, terminated, truncated, info = env.step(action)
@@ -116,6 +138,8 @@ def main() -> None:
         "control_mode": args.control_mode,
         "episodes": args.episodes,
         "start_seed": args.start_seed,
+        "action_horizon": action_horizon,
+        "observation_history": observation_history_size,
         "mean_return": float(np.mean([result["return"] for result in episode_results])),
         "mean_length": float(np.mean([result["length"] for result in episode_results])),
         "success_rate": float(np.mean([result["success"] for result in episode_results])),
@@ -131,6 +155,21 @@ def clip_action(action_space: gym.Space, action: np.ndarray) -> np.ndarray:
     if isinstance(action_space, gym.spaces.Box):
         return np.clip(action, action_space.low, action_space.high).astype(np.float32)
     return action
+
+
+def temporal_ensemble(predicted_chunks: list[np.ndarray]) -> np.ndarray:
+    predictions = [
+        chunk[len(predicted_chunks) - 1 - index]
+        for index, chunk in enumerate(predicted_chunks)
+    ]
+    return np.mean(predictions, axis=0).astype(np.float32)
+
+
+def build_observation_history(history: list[np.ndarray], size: int) -> np.ndarray:
+    if not history:
+        raise ValueError("Observation history cannot be empty.")
+    frames = [history[0]] * (size - len(history)) + history
+    return np.concatenate(frames).astype(np.float32)
 
 
 if __name__ == "__main__":
